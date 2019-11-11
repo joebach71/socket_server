@@ -87,6 +87,7 @@ def is_not_valid_input(key, flag, size, value):
         return b'data block length mismatch'
     return False
 
+
 async def handle_memcached_protocol(reader, writer):
     while True:
         try:
@@ -180,7 +181,7 @@ if __name__ == '__main__':
     # create sqlite
     db_file = path.abspath(sys.argv[1])
     # # start react server
-    # react_pid = start_react()
+    react_pid = start_react()
     os.putenv('database', db_file)
     migrate_db()
     http_pid = start_django('127.0.0.1', 8080)

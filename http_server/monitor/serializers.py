@@ -8,4 +8,4 @@ class StorageSerializer(serializers.HyperlinkedModelSerializer):
 
 class StorageViewSet(viewsets.ModelViewSet):
     serializer_class = StorageSerializer
-    queryset = Storage.objects.all().order_by('key')
+    queryset = Storage.objects.all().order_by('key').reverse()

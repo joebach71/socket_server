@@ -18,6 +18,12 @@ def main():
     print (result)
     print (client.delete('some_key'))
     print (client.get('some_key'))
+    client.set('new', 'unknown value')
+    client.set('test1', 'tesing unknow reasonable text')
+    client.set('test2', 'although i know it will be hash value')
+    client.set('test3', 'show me the value')
+    client.set('test4', 'whatever it takes')
+    client.set('test5', 'something at works')
     return True
 
 if __name__ == "__main__":
