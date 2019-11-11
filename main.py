@@ -1,28 +1,44 @@
 #!/usr/bin/env python
 import asyncio
 import sys
+import os
 import json
-from subprocess import Popen
+import sqlite3
+from subprocess import Popen, call
 from os import path
 from database import Client, init_db
 
 Database = None
-def start_http_server(host, port, db):
-    pid = Popen(["python", "web.py", host, f'{port}', db], \
-        # env={ 'FLASK_APP': 'flaskr', 'FLASK_ENV': 'development' }
-        ).pid
-    return pid
-
 def package(key, value, flags, exptime, bytes):
     '''
     VALUE <key> <flags> <bytes> [<cas unique>]\r\n
     <data block>\r\n
     '''
+    value = decode(value)
     return f'VALUE {key} {flags} {bytes}\r\n{value}\r\n'
+def encode(value):
+    # value is always string but dict, array, etc.
+    try:
+        json_value = json.loads(value)
+        value = json.dumps(json_value, ensure_ascii=False)
+    except:
+        pass
+    return value
+def decode(value):
+    # value is always string but dict, array, etc.
+    try:
+        json_value = json.loads(value)
+        value = json.dumps(json_value, ensure_ascii=False)
+    except:
+        pass
+    return value
 def get_value(key_list):
     select = []
     for key in key_list:
-        row = Database.select(key)
+        try:
+            row = Database.select(key)
+        except sqlite3.Error as e:
+            print ('sqlite error: ', e)
         if row is None:
             continue
         result = package(*row)
@@ -35,10 +51,12 @@ def set_value(key, value, flag, exptime, size):
     - "STORED\r\n", to indicate success.
     '''
     # print (key, value, flag, exptime, size)
+    value = decode(value)
     try:
         Database.set(key, value, flag, size, exptime)
         return b'STORED\r\n'
-    except:
+    except sqlite3.Error as e:
+        print ('sqlite error: ', e)
         return b'SERVER_ERROR\r\n'
 def delete_value(key):
     '''
@@ -48,8 +66,11 @@ def delete_value(key):
     - "NOT_FOUND\r\n" to indicate that the item with this key was not
         found.
     '''
-    if Database.delete(key):
-        return b'DELETED\r\n'
+    try:
+        if Database.delete(key):
+            return b'DELETED\r\n'
+    except sqlite3.Error as e:
+        print ('sqlite error: ', e)
     return b"NOT_FOUND\r\n"
 def is_not_valid_input(key, flag, size, value):
     if ' ' in key:
@@ -60,7 +81,7 @@ def is_not_valid_input(key, flag, size, value):
         return b'Flags is not an integer'
     if isinstance(size, int):
         return b'Length is not an integer'
-    if size != len(value):
+    if int(size) != len(value):
         print (isinstance(len(value), int))
         print (size, len(value))
         return b'data block length mismatch'
@@ -68,7 +89,11 @@ def is_not_valid_input(key, flag, size, value):
 
 async def handle_memcached_protocol(reader, writer):
     while True:
-        data = await reader.readuntil(separator=b'\r\n')
+        try:
+            data = await reader.readuntil(separator=b'\r\n')
+        except asyncio.streams.IncompleteReadError:
+            # print ('Incomplete error')
+            break
         data = data.decode().replace('\r\n', '')
         cmd, *rest = data.split(' ')
         addr = writer.get_extra_info('peername')
@@ -77,18 +102,21 @@ async def handle_memcached_protocol(reader, writer):
             writer.write(get_value(rest))
         elif cmd == 'set':
             key, flag, exptime, size, *args = rest
+            # size = int(size)
+            # value = await reader.read(size)
             value = await reader.readuntil(separator=b'\r\n')
             value = value.decode().replace('\r\n', '')
             # if is_not_valid_input(key, flag, size, value):
-                # '''
-                # - "CLIENT_ERROR <error>\r\n"
-                # means some sort of client error in the input line, i.e. the input
-                # doesn't conform to the protocol in some way. <error> is a
-                # human-readable error string.
-                # '''
-                # error_message = f'CLIENT_ERROR Key contains whitespace: \'{key}\''
-                # writer.write(error_message.encode())
-                # break
+            #     print ('not valid')
+            #     '''
+            #     - "CLIENT_ERROR <error>\r\n"
+            #     means some sort of client error in the input line, i.e. the input
+            #     doesn't conform to the protocol in some way. <error> is a
+            #     human-readable error string.
+            #     '''
+            #     error_message = f'CLIENT_ERROR Key contains whitespace: \'{key}\''
+            #     writer.write(error_message.encode())
+            #     break
             result = set_value(key, value, flag, exptime, size)
             if len(args) == 0 or args[0] != 'noreply':
                 writer.write(result)
@@ -114,12 +142,10 @@ async def handle_memcached_protocol(reader, writer):
         # print(f"Send: {message!r}")
         # writer.write(data)
     await writer.drain()
-    print("Close the connection")
+    print("connection closed")
     writer.close()
 
-async def main(host, tcp_port, http_port, db_name):
-    # start http server
-    http_pid = start_http_server(host, http_port, db_name)
+async def main(host, tcp_port):
     # Get a reference to the event loop as we plan to use
     # low-level APIs.
     loop = asyncio.get_running_loop()
@@ -135,17 +161,31 @@ async def main(host, tcp_port, http_port, db_name):
     print(f' * Serving on {addr} memcached Protocol')
     async with server:
         await server.serve_forever()
-
+def start_react():
+    pid = Popen(['npm', 'start'], cwd='./frontend').pid
+    print (f"started react {pid}")
+    return pid
+def start_django(host, port):
+    pid = Popen(["python", "manage.py", "runserver", f'{host}:{port}'], cwd="./http_server").pid
+    return pid
+def migrate_db():
+    exitcode = call(["python", "manage.py", "makemigrations"], cwd="./http_server")
+    print (f'completed makemigrations {exitcode}')
+    exitcode = call(["python", "manage.py", "migrate"], cwd="./http_server")
+    print (f'completed migration {exitcode}')
 if __name__ == '__main__':
     if sys.argv[1] is None:
         print ('Please provide the sqlite db path')
         exit(1)
     # create sqlite
     db_file = path.abspath(sys.argv[1])
-    if path.exists(db_file) is None:
-        # init_db(database) # create sqlite3 db table file
-        Database = Client(db_file)
-        Database.init_table()
-    else:
-        Database = Client(db_file)
-    asyncio.run(main('127.0.0.1', 11211, 8000, db_file), debug=True)
+    # # start react server
+    # react_pid = start_react()
+    os.putenv('database', db_file)
+    migrate_db()
+    http_pid = start_django('127.0.0.1', 8080)
+    print (f'running django process {http_pid}')
+
+    Database = Client(db_file)
+    Database.connect()
+    asyncio.run(main('127.0.0.1', 11211), debug=True)
