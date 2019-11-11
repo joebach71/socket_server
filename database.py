@@ -1,22 +1,6 @@
 import sys
 import sqlite3
 
-def init_db(database):
-    # import all modules here that might define models so that
-    # they will be registered properly on the metadata.  Otherwise
-    # you will have to import them first before calling init_db()
-    conn = sqlite3.connect(database)
-    c = conn.cursor()
-    # Create table
-    print ('creating memcached table')
-    c.execute('''CREATE TABLE memcached
-                (key text UNIQUE, value text, flag integer, exptime integer, size integer)''')
-    # Save (commit) the changes
-    conn.commit()
-    return conn
-
-import json
-
 class Client():
     def __init__(self, db_file):
         self.db_file = db_file

@@ -6,7 +6,7 @@ import json
 import sqlite3
 from subprocess import Popen, call
 from os import path
-from database import Client, init_db
+from database import Client
 
 Database = None
 def package(key, value, flags, exptime, bytes):
